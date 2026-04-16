@@ -46,29 +46,30 @@ export class M3UImporter implements IPlaylistImporter {
     const songs: ISong[] = [];
     const lines = content.split('\n').map((line) => line.trim());
 
-    let i = 0;
-    while (i < lines.length) {
-      const line = lines[i];
+    let pendingExtinf: string | null = null;
+
+    for (const line of lines) {
+      if (!line) continue;
 
       if (line.startsWith('#EXTINF:')) {
-        const extinf = line;
-        const audioPath = lines[i + 1]?.trim() || '';
-
-        if (audioPath && !audioPath.startsWith('#')) {
-          try {
-            const song = this.parseSongLine(extinf, audioPath);
-            if (song) {
-              songs.push(song);
-            }
-          } catch (error) {
-            console.warn(`Error parsing M3U line: ${extinf}`, error);
-          }
-        }
-
-        i += 2;
-      } else {
-        i++;
+        pendingExtinf = line;
+        continue;
       }
+
+      if (line.startsWith('#')) {
+        continue;
+      }
+
+      try {
+        const song = pendingExtinf ? this.parseSongLine(pendingExtinf, line) : this.createSongFromPath(line);
+        if (song) {
+          songs.push(song);
+        }
+      } catch (error) {
+        console.warn(`Error parsing M3U entry: ${line}`, error);
+      }
+
+      pendingExtinf = null;
     }
 
     return songs;
@@ -83,7 +84,8 @@ export class M3UImporter implements IPlaylistImporter {
     if (!match) return null;
 
     const [, durationStr, metadata] = match;
-    const duration = Math.floor(parseFloat(durationStr));
+    const parsedDuration = Math.floor(parseFloat(durationStr));
+    const duration = Number.isFinite(parsedDuration) ? parsedDuration : 0;
 
     // Parsear metadata "artist - title"
     let artist = 'Desconocido';
@@ -107,6 +109,24 @@ export class M3UImporter implements IPlaylistImporter {
       audioUrl: audioPath,
       source: 'm3u',
       isFileAvailable: audioPath.startsWith('http') || audioPath.startsWith('/'),
+    };
+  }
+
+  private createSongFromPath(audioPath: string): ISong {
+    const normalizedPath = audioPath.trim();
+    const fileName = normalizedPath.split('/').pop() || normalizedPath;
+    const title = fileName.replace(/\.[^/.]+$/, '') || 'Sin título';
+
+    return {
+      id: generateUUID(),
+      title,
+      artist: 'Desconocido',
+      album: 'Importado M3U',
+      duration: 0,
+      albumArt: '',
+      audioUrl: normalizedPath,
+      source: 'm3u',
+      isFileAvailable: normalizedPath.startsWith('http') || normalizedPath.startsWith('/'),
     };
   }
 

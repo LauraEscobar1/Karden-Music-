@@ -21,6 +21,7 @@ export interface IUserPlaylist {
   id: string;
   name: string;
   description: string;
+  coverImage: string;
   createdAt: number;
   updatedAt: number;
   songs: ISong[];

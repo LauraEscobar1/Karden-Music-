@@ -1,4 +1,4 @@
-import { Playlist } from '@models';
+import { IUserPlaylist } from '@interfaces';
 import { createButton, createInput, createLabel, showNotification } from './UIComponents';
 
 /**
@@ -7,8 +7,8 @@ import { createButton, createInput, createLabel, showNotification } from './UICo
 export class PlaylistModalView {
   private modalElement: HTMLDivElement;
   private isEditMode: boolean = false;
-  private currentPlaylist: Playlist | null = null;
-  private onSave: (name: string, description: string) => void = () => {};
+  private currentPlaylist: IUserPlaylist | null = null;
+  private onSave: (name: string, coverImage: string) => void = () => {};
   private onClose: () => void = () => {};
 
   constructor(private container: HTMLElement) {
@@ -19,7 +19,7 @@ export class PlaylistModalView {
   /**
    * Establece el callback de guardado
    */
-  setOnSave(callback: (name: string, description: string) => void): void {
+  setOnSave(callback: (name: string, coverImage: string) => void): void {
     this.onSave = callback;
   }
 
@@ -28,6 +28,14 @@ export class PlaylistModalView {
    */
   setOnClose(callback: () => void): void {
     this.onClose = callback;
+  }
+
+  isInEditMode(): boolean {
+    return this.isEditMode;
+  }
+
+  getCurrentPlaylistId(): string | null {
+    return this.currentPlaylist?.id || null;
   }
 
   /**
@@ -43,10 +51,10 @@ export class PlaylistModalView {
   /**
    * Abre el modal para editar una playlist
    */
-  openForEdit(playlist: Playlist): void {
+  openForEdit(playlist: IUserPlaylist): void {
     this.isEditMode = true;
     this.currentPlaylist = playlist;
-    this.renderContent('Editar Playlist', playlist.name, playlist.description);
+    this.renderContent('Editar Playlist', playlist.name, playlist.coverImage || '');
     this.modalElement.classList.remove('hidden');
   }
 
@@ -81,7 +89,7 @@ export class PlaylistModalView {
   /**
    * Renderiza el contenido del modal
    */
-  private renderContent(title: string, nameValue: string, descriptionValue: string): void {
+  private renderContent(title: string, nameValue: string, coverImageValue: string): void {
     const modalContent = this.modalElement.querySelector('div');
     if (!modalContent) return;
 
@@ -112,16 +120,55 @@ export class PlaylistModalView {
     form.appendChild(nameLabel);
     form.appendChild(nameInput);
 
-    // Campo: Descripción
-    const descriptionLabel = createLabel('Descripción (Opcional)');
-    const descriptionInput = document.createElement('textarea');
-    descriptionInput.className = 'w-full px-3 py-2 border border-yt-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-yt-dark';
-    descriptionInput.placeholder = 'Ingresa una descripción para la playlist';
-    descriptionInput.value = descriptionValue;
-    descriptionInput.rows = 3;
+    // Campo: Imagen
+    const imageLabel = createLabel('Imagen de la Playlist (Opcional)');
+    const imageInput = createInput({
+      type: 'file',
+      class:
+        'w-full px-3 py-2 border border-yt-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-yt-dark file:mr-4 file:rounded file:border-0 file:bg-primary file:px-3 file:py-2 file:text-white',
+    });
+    imageInput.accept = 'image/*';
 
-    form.appendChild(descriptionLabel);
-    form.appendChild(descriptionInput);
+    const imagePreview = document.createElement('div');
+    imagePreview.className = 'w-24 h-24 rounded-lg overflow-hidden bg-yt-light-gray flex items-center justify-center text-yt-gray';
+
+    const previewImage = document.createElement('img');
+    previewImage.className = 'w-full h-full object-cover hidden';
+
+    const previewPlaceholder = document.createElement('span');
+    previewPlaceholder.textContent = 'Sin imagen';
+
+    if (coverImageValue) {
+      previewImage.src = coverImageValue;
+      previewImage.classList.remove('hidden');
+      previewPlaceholder.classList.add('hidden');
+    }
+
+    let selectedCoverImage = coverImageValue;
+
+    imageInput.addEventListener('change', async () => {
+      const file = imageInput.files?.[0];
+      if (!file) {
+        return;
+      }
+
+      if (!file.type.startsWith('image/')) {
+        showNotification('Selecciona un archivo de imagen válido', 'warning');
+        return;
+      }
+
+      selectedCoverImage = await this.readFileAsDataUrl(file);
+      previewImage.src = selectedCoverImage;
+      previewImage.classList.remove('hidden');
+      previewPlaceholder.classList.add('hidden');
+    });
+
+    imagePreview.appendChild(previewImage);
+    imagePreview.appendChild(previewPlaceholder);
+
+    form.appendChild(imageLabel);
+    form.appendChild(imageInput);
+    form.appendChild(imagePreview);
 
     // Botones
     const buttonContainer = document.createElement('div');
@@ -131,7 +178,7 @@ export class PlaylistModalView {
       class: 'flex-1 px-4 py-2 bg-primary text-white rounded hover:bg-red-600 transition font-semibold',
       onClick: (e) => {
         e.preventDefault();
-        this.handleSave(nameInput.value, descriptionInput.value);
+        this.handleSave(nameInput.value, selectedCoverImage);
       },
     });
 
@@ -153,13 +200,22 @@ export class PlaylistModalView {
   /**
    * Maneja el guardado
    */
-  private handleSave(name: string, description: string): void {
+  private handleSave(name: string, coverImage: string): void {
     if (!name.trim()) {
       showNotification('El nombre de la playlist es requerido', 'warning');
       return;
     }
 
-    this.onSave(name.trim(), description.trim());
+    this.onSave(name.trim(), coverImage);
     this.close();
+  }
+
+  private readFileAsDataUrl(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
   }
 }

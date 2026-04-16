@@ -21,6 +21,10 @@ export class AppView {
   private playerControlsView!: PlayerControlsView;
   private editSongModalView!: EditSongModalView;
   private playlistModalView!: PlaylistModalView;
+  private currentPlaylistImage!: HTMLImageElement;
+  private currentPlaylistImagePlaceholder!: HTMLSpanElement;
+  private currentPlaylistName!: HTMLHeadingElement;
+  private currentPlaylistMeta!: HTMLParagraphElement;
   private onSelectPlaylistCallback: (playlistId: string) => void = () => {};
   private onPlaySongCallback: (songIndex: number) => void = () => {};
   private onDeletePlaylistCallback: (playlistId: string) => void = () => {};
@@ -77,6 +81,39 @@ export class AppView {
     const songsHeader = document.createElement('div');
     songsHeader.className = 'flex justify-between items-center mb-4';
 
+    const currentPlaylistInfo = document.createElement('div');
+    currentPlaylistInfo.className = 'mb-4 p-3 rounded-lg bg-white border border-yt-border flex items-center gap-3';
+
+    const playlistCoverContainer = document.createElement('div');
+    playlistCoverContainer.className = 'w-16 h-16 rounded-lg overflow-hidden bg-yt-light-gray flex items-center justify-center shrink-0';
+
+    this.currentPlaylistImage = document.createElement('img');
+    this.currentPlaylistImage.className = 'w-full h-full object-cover hidden';
+
+    this.currentPlaylistImagePlaceholder = document.createElement('span');
+    this.currentPlaylistImagePlaceholder.className = 'text-yt-gray font-bold';
+    this.currentPlaylistImagePlaceholder.textContent = '♪';
+
+    playlistCoverContainer.appendChild(this.currentPlaylistImage);
+    playlistCoverContainer.appendChild(this.currentPlaylistImagePlaceholder);
+
+    const playlistTextInfo = document.createElement('div');
+    playlistTextInfo.className = 'min-w-0';
+
+    this.currentPlaylistName = document.createElement('h3');
+    this.currentPlaylistName.className = 'font-bold text-yt-dark truncate';
+    this.currentPlaylistName.textContent = 'Sin playlist seleccionada';
+
+    this.currentPlaylistMeta = document.createElement('p');
+    this.currentPlaylistMeta.className = 'text-sm text-yt-gray';
+    this.currentPlaylistMeta.textContent = '0 canciones';
+
+    playlistTextInfo.appendChild(this.currentPlaylistName);
+    playlistTextInfo.appendChild(this.currentPlaylistMeta);
+
+    currentPlaylistInfo.appendChild(playlistCoverContainer);
+    currentPlaylistInfo.appendChild(playlistTextInfo);
+
     const songsTitle = document.createElement('h2');
     songsTitle.className = 'font-bold text-lg text-yt-dark';
     songsTitle.textContent = 'Canciones';
@@ -95,6 +132,7 @@ export class AppView {
 
     this.songListView = new SongListView(songsContainer);
 
+    songsSection.appendChild(currentPlaylistInfo);
     songsSection.appendChild(songsHeader);
     songsSection.appendChild(songsContainer);
 
@@ -161,7 +199,7 @@ export class AppView {
       this.onEditSongCallback(updated as any);
     });
 
-    this.playlistModalView.setOnSave((name, description) => this.savePlaylist(name, description));
+    this.playlistModalView.setOnSave((name, coverImage) => this.savePlaylist(name, coverImage));
 
     this.playerControlsView.setOnPlay(() => this.player.play());
     this.playerControlsView.setOnPause(() => this.player.pause());
@@ -174,7 +212,7 @@ export class AppView {
   }
 
   updatePlaylistsView(playlists: IUserPlaylist[]): void {
-    this.playlistListView.update(playlists as any);
+    this.playlistListView.update(playlists);
   }
 
   updateSongsView(songs: ISong[], currentSongId: string | null): void {
@@ -198,16 +236,50 @@ export class AppView {
     showNotification(message, type);
   }
 
-  private savePlaylist(name: string, description: string): void {
-    const currentPlaylist = this.playlistService.getCurrentPlaylist();
-    if (currentPlaylist && this.playlistModalView['isEditMode']) {
-      this.playlistService.updatePlaylist(currentPlaylist.id, { name, description } as any);
+  setCurrentPlaylist(playlist: IUserPlaylist | null): void {
+    if (!playlist) {
+      this.currentPlaylistName.textContent = 'Sin playlist seleccionada';
+      this.currentPlaylistMeta.textContent = '0 canciones';
+      this.currentPlaylistImage.classList.add('hidden');
+      this.currentPlaylistImagePlaceholder.classList.remove('hidden');
+      return;
+    }
+
+    this.currentPlaylistName.textContent = playlist.name;
+    const totalSongs = playlist.songs?.length || 0;
+    this.currentPlaylistMeta.textContent = `${totalSongs} canción${totalSongs !== 1 ? 'es' : ''}`;
+
+    if (playlist.coverImage) {
+      this.currentPlaylistImage.src = playlist.coverImage;
+      this.currentPlaylistImage.classList.remove('hidden');
+      this.currentPlaylistImagePlaceholder.classList.add('hidden');
     } else {
-      this.playlistService.createPlaylist(name, description);
+      this.currentPlaylistImage.classList.add('hidden');
+      this.currentPlaylistImagePlaceholder.classList.remove('hidden');
+    }
+  }
+
+  private savePlaylist(name: string, coverImage: string): void {
+    let selectedPlaylistId: string | null = null;
+
+    if (this.playlistModalView.isInEditMode()) {
+      const editingPlaylistId = this.playlistModalView.getCurrentPlaylistId();
+      if (editingPlaylistId) {
+        this.playlistService.updatePlaylist(editingPlaylistId, { name, coverImage } as any);
+        selectedPlaylistId = editingPlaylistId;
+      }
+    } else {
+      const createdPlaylist = this.playlistService.createPlaylist(name, '', coverImage);
+      selectedPlaylistId = createdPlaylist.id;
     }
 
     const playlists = this.playlistService.getAllPlaylists();
     this.updatePlaylistsView(playlists);
+
+    if (selectedPlaylistId) {
+      this.onSelectPlaylistCallback(selectedPlaylistId);
+    }
+
     this.showNotification('Playlist guardada', 'success');
   }
 

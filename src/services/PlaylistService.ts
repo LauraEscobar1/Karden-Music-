@@ -11,11 +11,12 @@ export class PlaylistService {
     this.libraryState = this.storageService.getLibraryState();
   }
 
-  createPlaylist(name: string, description: string = ''): IUserPlaylist {
+  createPlaylist(name: string, description: string = '', coverImage: string = ''): IUserPlaylist {
     const playlist: IUserPlaylist = {
       id: generateUUID(),
       name,
       description,
+      coverImage,
       songs: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -117,8 +118,8 @@ export class PlaylistService {
     return m3u;
   }
 
-  importPlaylistFromM3U(name: string, description: string, songs: ISong[]): IUserPlaylist {
-    const playlist = this.createPlaylist(name, description);
+  importPlaylistFromM3U(name: string, description: string, songs: ISong[], coverImage: string = ''): IUserPlaylist {
+    const playlist = this.createPlaylist(name, description, coverImage);
     this.addSongsToPlaylist(playlist.id, songs);
     return playlist;
   }

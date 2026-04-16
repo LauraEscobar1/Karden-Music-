@@ -81,6 +81,7 @@ export class AppController {
 
     this.playlistService.setCurrentPlaylist(playlistId);
     this.player.loadPlaylist(playlist);
+    this.appView.setCurrentPlaylist(playlist);
     this.appView.updateSongsView(playlist.songs, this.player.getCurrentSong()?.id || null);
   }
 
@@ -97,6 +98,9 @@ export class AppController {
     if (this.player.getCurrentPlaylist()?.id === playlistId) {
       if (playlists.length > 0) {
         this.selectPlaylist(playlists[0].id);
+      } else {
+        this.appView.setCurrentPlaylist(null);
+        this.appView.updateSongsView([], null);
       }
     }
 
@@ -178,42 +182,76 @@ export class AppController {
       if (!files) return;
 
       try {
-        let allSongs: any[] = [];
-        let playlistName = '';
+        const selectedFiles = Array.from(files);
+        const m3uFiles = selectedFiles.filter((file) => /\.m3u8?$/i.test(file.name));
+        const audioFiles = selectedFiles.filter((file) => file.type.startsWith('audio/') || /\.mp3$/i.test(file.name));
 
-        // Procesar cada archivo
-        for (let i = 0; i < files.length; i++) {
-          const file = files[i];
-          const songs = await this.m3uImporter.import(file);
-          allSongs = allSongs.concat(songs);
+        let importedSongsCount = 0;
+        let createdPlaylistsCount = 0;
+        let playlistToOpenId: string | null = null;
 
-          if (playlistName === '') {
-            playlistName = file.name.replace(/\.[^/.]+$/, '');
+        for (const m3uFile of m3uFiles) {
+          const songs = await this.m3uImporter.import(m3uFile);
+          if (songs.length === 0) {
+            continue;
+          }
+
+          const playlistName = m3uFile.name.replace(/\.[^/.]+$/, '');
+          const createdPlaylist = this.playlistService.importPlaylistFromM3U(playlistName, 'Importada desde M3U', songs);
+
+          createdPlaylistsCount += 1;
+          importedSongsCount += songs.length;
+
+          if (!playlistToOpenId) {
+            playlistToOpenId = createdPlaylist.id;
           }
         }
 
-        // Si vino de un M3U, usar el nombre del M3U
-        if (files[0].name.endsWith('.m3u') || files[0].name.endsWith('.m3u8')) {
-          const playlist = this.playlistService.importPlaylistFromM3U(playlistName, '', allSongs);
-          const playlists = this.playlistService.getAllPlaylists();
-          this.appView.updatePlaylistsView(playlists);
-          this.selectPlaylist(playlist.id);
-          this.appView.showNotification('Archivos importados correctamente', 'success');
-        } else {
-          // Si son MP3s, agregar a la playlist actual
-          const currentPlaylist = this.playlistService.getCurrentPlaylist();
-          if (!currentPlaylist) {
-            this.appView.showNotification('Selecciona una playlist primero', 'warning');
-            return;
+        if (audioFiles.length > 0) {
+          let targetPlaylist = this.playlistService.getCurrentPlaylist();
+
+          if (!targetPlaylist) {
+            const generatedName = `Importadas ${new Date().toLocaleDateString('es-ES')}`;
+            targetPlaylist = this.playlistService.createPlaylist(generatedName, 'Canciones importadas');
+            createdPlaylistsCount += 1;
+
+            if (!playlistToOpenId) {
+              playlistToOpenId = targetPlaylist.id;
+            }
           }
 
-          this.playlistService.addSongsToPlaylist(currentPlaylist.id, allSongs);
-          const updatedPlaylist = this.playlistService.getPlaylist(currentPlaylist.id);
-          if (updatedPlaylist) {
-            this.player.loadPlaylist(updatedPlaylist);
-            this.appView.updateSongsView(updatedPlaylist.songs, null);
+          let audioSongs: any[] = [];
+          for (const audioFile of audioFiles) {
+            const songs = await this.m3uImporter.import(audioFile);
+            audioSongs = audioSongs.concat(songs);
           }
-          this.appView.showNotification(`${allSongs.length} canción(es) importada(s)`, 'success');
+
+          if (audioSongs.length > 0 && targetPlaylist) {
+            this.playlistService.addSongsToPlaylist(targetPlaylist.id, audioSongs);
+            importedSongsCount += audioSongs.length;
+            playlistToOpenId = targetPlaylist.id;
+          }
+        }
+
+        if (importedSongsCount === 0) {
+          this.appView.showNotification('No se encontraron canciones válidas para importar', 'warning');
+          return;
+        }
+
+        const playlists = this.playlistService.getAllPlaylists();
+        this.appView.updatePlaylistsView(playlists);
+
+        if (playlistToOpenId) {
+          this.selectPlaylist(playlistToOpenId);
+        }
+
+        if (createdPlaylistsCount > 0) {
+          this.appView.showNotification(
+            `Importación completada: ${importedSongsCount} canción(es) en ${createdPlaylistsCount} playlist(s)`,
+            'success'
+          );
+        } else {
+          this.appView.showNotification(`${importedSongsCount} canción(es) importada(s)`, 'success');
         }
       } catch (error) {
         this.appView.showNotification('Error al importar', 'error');

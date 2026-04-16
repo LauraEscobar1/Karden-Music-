@@ -1,4 +1,4 @@
-import { Playlist } from '@models';
+import { IUserPlaylist } from '@interfaces';
 import { createButton, createIcon, createCard } from './UIComponents';
 
 /**
@@ -6,10 +6,10 @@ import { createButton, createIcon, createCard } from './UIComponents';
  */
 export class PlaylistListView {
   private container: HTMLElement;
-  private playlists: Playlist[] = [];
-  private onSelectPlaylist: (playlist: Playlist) => void = () => {};
+  private playlists: IUserPlaylist[] = [];
+  private onSelectPlaylist: (playlist: IUserPlaylist) => void = () => {};
   private onDeletePlaylist: (playlistId: string) => void = () => {};
-  private onEditPlaylist: (playlist: Playlist) => void = () => {};
+  private onEditPlaylist: (playlist: IUserPlaylist) => void = () => {};
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -19,7 +19,7 @@ export class PlaylistListView {
   /**
    * Establece el callback para seleccionar una playlist
    */
-  setOnSelectPlaylist(callback: (playlist: Playlist) => void): void {
+  setOnSelectPlaylist(callback: (playlist: IUserPlaylist) => void): void {
     this.onSelectPlaylist = callback;
   }
 
@@ -33,14 +33,14 @@ export class PlaylistListView {
   /**
    * Establece el callback para editar una playlist
    */
-  setOnEditPlaylist(callback: (playlist: Playlist) => void): void {
+  setOnEditPlaylist(callback: (playlist: IUserPlaylist) => void): void {
     this.onEditPlaylist = callback;
   }
 
   /**
    * Actualiza la lista de playlists
    */
-  update(playlists: Playlist[]): void {
+  update(playlists: IUserPlaylist[]): void {
     this.playlists = playlists;
     this.render();
   }
@@ -73,23 +73,44 @@ export class PlaylistListView {
   /**
    * Crea un elemento de playlist
    */
-  private createPlaylistItem(playlist: Playlist): HTMLElement {
+  private createPlaylistItem(playlist: IUserPlaylist): HTMLElement {
     const card = createCard({class: 'bg-white rounded-lg shadow p-4 hover:shadow-lg transition cursor-pointer flex justify-between items-center'});
 
     const info = document.createElement('div');
-    info.className = 'flex-1 cursor-pointer';
+    info.className = 'flex items-center gap-3 flex-1 cursor-pointer';
     info.addEventListener('click', () => this.onSelectPlaylist(playlist));
 
+    const cover = document.createElement('div');
+    cover.className = 'w-10 h-10 rounded-md overflow-hidden bg-yt-light-gray flex items-center justify-center shrink-0';
+
+    if (playlist.coverImage) {
+      const image = document.createElement('img');
+      image.src = playlist.coverImage;
+      image.alt = `Portada de ${playlist.name}`;
+      image.className = 'w-full h-full object-cover';
+      cover.appendChild(image);
+    } else {
+      cover.textContent = '♪';
+      cover.classList.add('text-yt-gray', 'font-bold');
+    }
+
+    const textInfo = document.createElement('div');
+    textInfo.className = 'min-w-0';
+
     const name = document.createElement('h3');
-    name.className = 'font-semibold text-yt-dark';
+    name.className = 'font-semibold text-yt-dark truncate';
     name.textContent = playlist.name;
 
     const songCount = document.createElement('p');
     songCount.className = 'text-sm text-yt-gray';
-    songCount.textContent = `${playlist.getSongCount()} canción${playlist.getSongCount() !== 1 ? 'es' : ''}`;
+    const totalSongs = playlist.songs?.length || 0;
+    songCount.textContent = `${totalSongs} canción${totalSongs !== 1 ? 'es' : ''}`;
 
-    info.appendChild(name);
-    info.appendChild(songCount);
+    textInfo.appendChild(name);
+    textInfo.appendChild(songCount);
+
+    info.appendChild(cover);
+    info.appendChild(textInfo);
 
     const actions = document.createElement('div');
     actions.className = 'flex gap-2';
