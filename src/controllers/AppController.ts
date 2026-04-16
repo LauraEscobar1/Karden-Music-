@@ -19,6 +19,7 @@ export class AppController {
 
   private localFileImporter: LocalFileImporter;
   private m3uImporter: M3UImporter;
+  private searchQuery: string = '';
 
   private constructor() {
     this.player = Player.getInstance();
@@ -75,13 +76,39 @@ export class AppController {
     this.player.on('volumechange', () => this.appView.updatePlayerState());
 
     this.appView.onSelectPlaylist((playlistId) => this.selectPlaylist(playlistId));
-    this.appView.onPlaySong((songIndex) => this.playSongAtIndex(songIndex));
+    this.appView.onPlaySong((songId) => this.playSongById(songId));
     this.appView.onDeletePlaylist((playlistId) => this.deletePlaylist(playlistId));
     this.appView.onDeleteSong((songId) => this.deleteSongFromCurrentPlaylist(songId));
     this.appView.onEditSong((song) => this.editSong(song));
     this.appView.onAddSongsToPlaylist(() => this.addSongsToCurrentPlaylist());
     this.appView.onImportFiles(() => this.importFiles());
     this.appView.onMoveQueueSong((fromIndex, toIndex) => this.reorderCurrentPlaylistSongs(fromIndex, toIndex));
+    this.appView.onSearch((query) => this.searchSongs(query));
+  }
+
+  private searchSongs(query: string): void {
+    this.searchQuery = query;
+    const currentPlaylist = this.playlistService.getCurrentPlaylist();
+    if (!currentPlaylist) {
+      this.appView.updateSongsView([], null);
+      return;
+    }
+
+    if (!query) {
+      // Si no hay query, mostrar todas las canciones locales
+      const localSongs = currentPlaylist.songs.filter(song => song.source === 'local');
+      this.appView.updateSongsView(localSongs, this.player.getCurrentSong()?.id || null);
+      return;
+    }
+
+    // Filtrar canciones locales que coincidan con el query en título o artista
+    const filteredSongs = currentPlaylist.songs.filter(song =>
+      song.source === 'local' &&
+      (song.title.toLowerCase().includes(query.toLowerCase()) ||
+       song.artist.toLowerCase().includes(query.toLowerCase()))
+    );
+
+    this.appView.updateSongsView(filteredSongs, this.player.getCurrentSong()?.id || null);
   }
 
   private selectPlaylist(playlistId: string): void {
@@ -90,14 +117,20 @@ export class AppController {
 
     this.playlistService.setCurrentPlaylist(playlistId);
     this.player.loadPlaylist(playlist);
+    // Mostrar solo canciones locales inicialmente
+    const localSongs = playlist.songs.filter(song => song.source === 'local');
     this.appView.setCurrentPlaylist(playlist);
-    this.appView.updateSongsView(playlist.songs, this.player.getCurrentSong()?.id || null);
+    this.appView.updateSongsView(localSongs, this.player.getCurrentSong()?.id || null);
   }
 
-  private async playSongAtIndex(index: number): Promise<void> {
+  private async playSongById(songId: string): Promise<void> {
     const currentPlaylist = this.player.getCurrentPlaylist();
-    const song = currentPlaylist?.songs[index];
+    if (!currentPlaylist) return;
 
+    const songIndex = currentPlaylist.songs.findIndex(song => song.id === songId);
+    if (songIndex === -1) return;
+
+    const song = currentPlaylist.songs[songIndex];
     if (song && song.isFileAvailable === false) {
       const relinked = await this.tryRelinkSongFile(song.id);
       if (!relinked) {
@@ -106,7 +139,7 @@ export class AppController {
       }
     }
 
-    this.player.playSong(index);
+    this.player.playSong(songIndex);
     this.syncCurrentSongWithStorage();
     this.appView.updatePlayerState();
   }
@@ -136,7 +169,7 @@ export class AppController {
     const playlist = this.playlistService.getPlaylist(currentPlaylistId);
     if (playlist) {
       this.player.loadPlaylist(playlist);
-      this.appView.updateSongsView(playlist.songs, this.player.getCurrentSong()?.id || null);
+      this.searchSongs(this.searchQuery); // Refrescar con el query actual
     }
 
     this.appView.showNotification('Canción eliminada', 'success');
@@ -150,7 +183,7 @@ export class AppController {
     const playlist = this.playlistService.getPlaylist(currentPlaylistId);
     if (playlist) {
       this.player.loadPlaylist(playlist);
-      this.appView.updateSongsView(playlist.songs, this.player.getCurrentSong()?.id || null);
+      this.searchSongs(this.searchQuery); // Refrescar con el query actual
     }
 
     this.appView.showNotification('Canción actualizada', 'success');
@@ -179,7 +212,7 @@ export class AppController {
         const updatedPlaylist = this.playlistService.getPlaylist(currentPlaylist.id);
         if (updatedPlaylist) {
           this.player.loadPlaylist(updatedPlaylist);
-          this.appView.updateSongsView(updatedPlaylist.songs, null);
+          this.searchSongs(this.searchQuery); // Refrescar con el query actual
         }
 
         this.appView.showNotification(`${songs.length} canción(es) agregadas`, 'success');
@@ -463,7 +496,7 @@ export class AppController {
     }
 
     this.player.playSong(songIndex, false);
-    this.appView.updateSongsView(currentPlaylist.songs, rememberedSong.id);
+    this.searchSongs(this.searchQuery); // Refrescar con el query actual
     this.appView.updatePlayerState();
   }
 
@@ -497,7 +530,7 @@ export class AppController {
 
     this.player.updatePlaylistOrder(updatedPlaylist);
     this.appView.setCurrentPlaylist(updatedPlaylist);
-    this.appView.updateSongsView(updatedPlaylist.songs, this.player.getCurrentSong()?.id || null);
+    this.searchSongs(this.searchQuery); // Refrescar con el query actual
     this.appView.updatePlayerState();
   }
 

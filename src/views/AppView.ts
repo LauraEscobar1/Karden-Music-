@@ -26,13 +26,14 @@ export class AppView {
   private currentPlaylistName!: HTMLHeadingElement;
   private currentPlaylistMeta!: HTMLParagraphElement;
   private onSelectPlaylistCallback: (playlistId: string) => void = () => {};
-  private onPlaySongCallback: (songIndex: number) => void = () => {};
+  private onPlaySongCallback: (songId: string) => void = () => {};
   private onDeletePlaylistCallback: (playlistId: string) => void = () => {};
   private onDeleteSongCallback: (songId: string) => void = () => {};
   private onEditSongCallback: (song: ISong) => void = () => {};
   private onAddSongsCallback: () => void = () => {};
   private onImportFilesCallback: () => void = () => {};
   private onMoveQueueSongCallback: (fromIndex: number, toIndex: number) => void = () => {};
+  private onSearchCallback: (query: string) => void = () => {};
 
   constructor(rootSelector: string, playlistService: PlaylistService, player: Player) {
     this.playlistService = playlistService;
@@ -162,11 +163,25 @@ export class AppView {
     header.className = 'bg-secondary border-b border-yt-border text-yt-dark p-4';
 
     const container = document.createElement('div');
-    container.className = 'max-w-7xl mx-auto flex justify-between items-center';
+    container.className = 'max-w-7xl mx-auto flex justify-between items-center gap-4';
 
     const title = document.createElement('h1');
     title.className = 'text-2xl font-bold';
     title.textContent = '🎵 Karden Music';
+
+    const searchContainer = document.createElement('div');
+    searchContainer.className = 'flex-1 max-w-md';
+
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.placeholder = 'Buscar canciones locales...';
+    searchInput.className = 'w-full px-4 py-2 border border-yt-border rounded-full bg-white text-yt-dark placeholder-yt-gray focus:outline-none focus:ring-2 focus:ring-primary';
+    searchInput.addEventListener('input', (e) => {
+      const query = (e.target as HTMLInputElement).value.trim();
+      this.onSearchCallback(query);
+    });
+
+    searchContainer.appendChild(searchInput);
 
     const actions = document.createElement('div');
     actions.className = 'flex gap-3';
@@ -179,6 +194,7 @@ export class AppView {
     actions.appendChild(importBtn);
 
     container.appendChild(title);
+    container.appendChild(searchContainer);
     container.appendChild(actions);
 
     header.appendChild(container);
@@ -191,7 +207,7 @@ export class AppView {
     this.playlistListView.setOnDeletePlaylist((playlistId) => this.onDeletePlaylistCallback(playlistId));
     this.playlistListView.setOnEditPlaylist((playlist) => this.playlistModalView.openForEdit(playlist));
 
-    this.songListView.setOnPlaySong((index) => this.onPlaySongCallback(index));
+    this.songListView.setOnPlaySong((songId) => this.onPlaySongCallback(songId));
     this.songListView.setOnDeleteSong((songId) => this.onDeleteSongCallback(songId));
     this.songListView.setOnEditSong((song) => this.editSongModalView.open(song));
 
@@ -291,7 +307,7 @@ export class AppView {
     this.onSelectPlaylistCallback = callback;
   }
 
-  onPlaySong(callback: (songIndex: number) => void): void {
+  onPlaySong(callback: (songId: string) => void): void {
     this.onPlaySongCallback = callback;
   }
 
@@ -317,5 +333,9 @@ export class AppView {
 
   onMoveQueueSong(callback: (fromIndex: number, toIndex: number) => void): void {
     this.onMoveQueueSongCallback = callback;
+  }
+
+  onSearch(callback: (query: string) => void): void {
+    this.onSearchCallback = callback;
   }
 }

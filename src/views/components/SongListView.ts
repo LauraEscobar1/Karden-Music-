@@ -8,7 +8,7 @@ export class SongListView {
   private container: HTMLElement;
   private songs: Song[] = [];
   private currentSongId: string | null = null;
-  private onPlaySong: (songIndex: number) => void = () => {};
+  private onPlaySong: (songId: string) => void = () => {};
   private onDeleteSong: (songId: string) => void = () => {};
   private onEditSong: (song: Song) => void = () => {};
 
@@ -20,7 +20,7 @@ export class SongListView {
   /**
    * Establece el callback para reproducir una canción
    */
-  setOnPlaySong(callback: (songIndex: number) => void): void {
+  setOnPlaySong(callback: (songId: string) => void): void {
     this.onPlaySong = callback;
   }
 
@@ -101,7 +101,7 @@ export class SongListView {
     // Información
     const info = document.createElement('div');
     info.className = 'flex-1 cursor-pointer';
-    info.addEventListener('click', () => this.onPlaySong(index));
+    info.addEventListener('click', () => this.onPlaySong(song.id));
 
     const title = document.createElement('h4');
     title.className = 'font-semibold text-yt-dark truncate';
@@ -122,7 +122,7 @@ export class SongListView {
       class: 'p-2 text-primary hover:bg-primary hover:text-white rounded transition',
       onClick: (e) => {
         e.stopPropagation();
-        this.onPlaySong(index);
+        this.onPlaySong(song.id);
       },
     });
     playButton.appendChild(createIcon('play'));
