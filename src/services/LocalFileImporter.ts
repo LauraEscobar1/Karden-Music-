@@ -22,7 +22,10 @@ export class LocalFileImporter implements IPlaylistImporter {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
 
-      if (!file.type.startsWith('audio/')) {
+      const isAudioByMime = file.type.startsWith('audio/');
+      const isAudioByExtension = /\.(mp3|flac)$/i.test(file.name);
+
+      if (!isAudioByMime && !isAudioByExtension) {
         console.warn(`Archivo ignorado: ${file.name} (no es audio)`);
         continue;
       }
@@ -42,11 +45,10 @@ export class LocalFileImporter implements IPlaylistImporter {
    * Procesa un archivo de audio individual
    */
   private async processSongFile(file: File): Promise<ISong> {
-    // Crear URL de blob
+    // Usar una URL temporal para metadatos y otra para reproducción.
+    const metadataUrl = URL.createObjectURL(file);
+    const duration = await this.getAudioDuration(metadataUrl);
     const audioUrl = URL.createObjectURL(file);
-
-    // Obtener duración
-    const duration = await this.getAudioDuration(audioUrl);
 
     // Parsear nombre del archivo
     const { artist, title } = this.parseFileName(file.name);
@@ -62,6 +64,7 @@ export class LocalFileImporter implements IPlaylistImporter {
       duration,
       albumArt: '',
       audioUrl: audioUrl,
+      blobId,
       source: 'local',
       isFileAvailable: true,
     };
@@ -81,7 +84,14 @@ export class LocalFileImporter implements IPlaylistImporter {
         },
         { once: true }
       );
-      audio.addEventListener('error', () => reject(audio.error), { once: true });
+      audio.addEventListener(
+        'error',
+        () => {
+          URL.revokeObjectURL(url);
+          reject(audio.error);
+        },
+        { once: true }
+      );
       audio.src = url;
     });
   }

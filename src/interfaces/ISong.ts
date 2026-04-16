@@ -9,6 +9,7 @@ export interface ISong {
   duration: number;
   albumArt: string;
   audioUrl: string;
+  blobId?: string;
   source: 'local' | 'youtube' | 'spotify' | 'apple_music' | 'm3u';
   isFileAvailable: boolean;
   missingReason?: string;

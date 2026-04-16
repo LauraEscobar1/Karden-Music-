@@ -27,6 +27,8 @@ export class Player implements IEventEmitter {
   private eventListeners: Map<string, EventListener[]> = new Map();
   private repeatMode: RepeatMode = 'off';
   private isShuffle: boolean = false;
+  private shuffleOrder: number[] = [];
+  private shufflePosition: number = 0;
   private volumeLevel: number = 1;
   private updateIntervalId: NodeJS.Timeout | null = null;
 
@@ -46,19 +48,43 @@ export class Player implements IEventEmitter {
     this.audioElement.addEventListener('ended', () => this.handleSongEnded());
     this.audioElement.addEventListener('timeupdate', () => this.emit('timeupdate'));
     this.audioElement.addEventListener('volumechange', () => this.emit('volumechange'));
-    this.audioElement.addEventListener('play', () => this.emit('play'));
-    this.audioElement.addEventListener('pause', () => this.emit('pause'));
+    this.audioElement.addEventListener('play', () => {
+      this.isPlaying = true;
+      this.emit('play');
+    });
+    this.audioElement.addEventListener('pause', () => {
+      this.isPlaying = false;
+      this.emit('pause');
+    });
     this.audioElement.addEventListener('error', (error) => {
       console.error('Error de reproducción:', error);
-      this.next();
+      this.isPlaying = false;
+      this.emit('pause');
     });
   }
 
   loadPlaylist(playlist: IUserPlaylist): void {
     this.currentPlaylist = playlist;
     this.currentSongIndex = 0;
+    this.rebuildShuffleOrder(this.currentSongIndex);
     this.isPlaying = false;
     this.audioElement.pause();
+    this.emit('playlistchange');
+  }
+
+  updatePlaylistOrder(playlist: IUserPlaylist): void {
+    const currentSongId = this.getCurrentSong()?.id || null;
+    this.currentPlaylist = playlist;
+
+    if (currentSongId) {
+      const updatedIndex = playlist.songs.findIndex((song) => song.id === currentSongId);
+      this.currentSongIndex = updatedIndex >= 0 ? updatedIndex : 0;
+    } else {
+      this.currentSongIndex = 0;
+    }
+
+    this.rebuildShuffleOrder(this.currentSongIndex);
+
     this.emit('playlistchange');
   }
 
@@ -74,12 +100,10 @@ export class Player implements IEventEmitter {
     } else {
       this.playSong(this.currentSongIndex);
     }
-    this.isPlaying = true;
   }
 
   pause(): void {
     this.audioElement.pause();
-    this.isPlaying = false;
   }
 
   stop(): void {
@@ -89,17 +113,30 @@ export class Player implements IEventEmitter {
     this.emit('stop');
   }
 
-  playSong(songIndex: number): void {
+  playSong(songIndex: number, autoPlay: boolean = true): void {
     if (!this.currentPlaylist || songIndex < 0 || songIndex >= this.currentPlaylist.songs.length) {
       return;
     }
 
     this.currentSongIndex = songIndex;
+    if (this.isShuffle) {
+      const position = this.shuffleOrder.indexOf(songIndex);
+      if (position >= 0) {
+        this.shufflePosition = position;
+      }
+    }
+
     const song = this.currentPlaylist.songs[songIndex];
 
-    if (song && song.audioUrl) {
+    if (song && song.audioUrl && song.isFileAvailable !== false) {
       this.audioElement.src = song.audioUrl;
-      this.play();
+      if (autoPlay) {
+        this.play();
+      } else {
+        this.audioElement.pause();
+        this.audioElement.currentTime = 0;
+        this.emit('playlistchange');
+      }
     }
   }
 
@@ -109,7 +146,12 @@ export class Player implements IEventEmitter {
     }
 
     if (this.isShuffle) {
-      this.currentSongIndex = Math.floor(Math.random() * this.currentPlaylist.songs.length);
+      if (this.shuffleOrder.length !== this.currentPlaylist.songs.length) {
+        this.rebuildShuffleOrder(this.currentSongIndex);
+      }
+
+      this.shufflePosition = (this.shufflePosition + 1) % this.shuffleOrder.length;
+      this.currentSongIndex = this.shuffleOrder[this.shufflePosition];
     } else {
       this.currentSongIndex = (this.currentSongIndex + 1) % this.currentPlaylist.songs.length;
     }
@@ -123,7 +165,17 @@ export class Player implements IEventEmitter {
       return;
     }
 
-    this.currentSongIndex = (this.currentSongIndex - 1 + this.currentPlaylist.songs.length) % this.currentPlaylist.songs.length;
+    if (this.isShuffle) {
+      if (this.shuffleOrder.length !== this.currentPlaylist.songs.length) {
+        this.rebuildShuffleOrder(this.currentSongIndex);
+      }
+
+      this.shufflePosition = (this.shufflePosition - 1 + this.shuffleOrder.length) % this.shuffleOrder.length;
+      this.currentSongIndex = this.shuffleOrder[this.shufflePosition];
+    } else {
+      this.currentSongIndex = (this.currentSongIndex - 1 + this.currentPlaylist.songs.length) % this.currentPlaylist.songs.length;
+    }
+
     this.playSong(this.currentSongIndex);
     this.emit('previous');
   }
@@ -178,6 +230,15 @@ export class Player implements IEventEmitter {
 
   toggleShuffle(): boolean {
     this.isShuffle = !this.isShuffle;
+
+    if (this.isShuffle) {
+      this.rebuildShuffleOrder(this.currentSongIndex);
+    } else {
+      this.shuffleOrder = [];
+      this.shufflePosition = 0;
+    }
+
+    this.emit('playlistchange');
     return this.isShuffle;
   }
 
@@ -240,5 +301,32 @@ export class Player implements IEventEmitter {
       clearInterval(this.updateIntervalId);
     }
     this.eventListeners.clear();
+  }
+
+  private rebuildShuffleOrder(anchorIndex: number): void {
+    if (!this.currentPlaylist || this.currentPlaylist.songs.length === 0) {
+      this.shuffleOrder = [];
+      this.shufflePosition = 0;
+      return;
+    }
+
+    const indices = this.currentPlaylist.songs.map((_, index) => index);
+    const safeAnchor = Math.max(0, Math.min(anchorIndex, indices.length - 1));
+
+    for (let i = indices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [indices[i], indices[j]] = [indices[j], indices[i]];
+    }
+
+    const anchorPos = indices.indexOf(safeAnchor);
+    if (anchorPos > 0) {
+      indices.splice(anchorPos, 1);
+      indices.unshift(safeAnchor);
+    } else if (anchorPos === -1) {
+      indices.unshift(safeAnchor);
+    }
+
+    this.shuffleOrder = indices;
+    this.shufflePosition = 0;
   }
 }

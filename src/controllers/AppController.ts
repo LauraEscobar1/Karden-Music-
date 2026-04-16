@@ -41,11 +41,12 @@ export class AppController {
 
   private initialize(): void {
     this.setupEventListeners();
-    this.loadInitialData();
+    void this.loadInitialData();
   }
 
-  private loadInitialData(): void {
+  private async loadInitialData(): Promise<void> {
     const playlists = this.playlistService.getAllPlaylists();
+    await this.rehydrateLocalSongs(playlists);
     this.appView.updatePlaylistsView(playlists);
 
     if (playlists.length === 0) {
@@ -53,15 +54,22 @@ export class AppController {
       this.appView.updatePlaylistsView([defaultPlaylist]);
       this.selectPlaylist(defaultPlaylist.id);
     } else {
-      this.selectPlaylist(playlists[0].id);
+      const rememberedPlaylistId = this.playlistService.getCurrentPlaylist()?.id;
+      const playlistToSelect = rememberedPlaylistId && this.playlistService.getPlaylist(rememberedPlaylistId)
+        ? rememberedPlaylistId
+        : playlists[0].id;
+
+      this.selectPlaylist(playlistToSelect);
+      this.restoreAndTryPlayRememberedSong();
     }
   }
 
   private setupEventListeners(): void {
     this.player.on('play', () => this.appView.updatePlayerState());
+    this.player.on('play', () => this.syncCurrentSongWithStorage());
     this.player.on('pause', () => this.appView.updatePlayerState());
-    this.player.on('next', () => this.appView.updatePlayerState());
-    this.player.on('previous', () => this.appView.updatePlayerState());
+    this.player.on('next', () => this.syncCurrentSongWithStorage());
+    this.player.on('previous', () => this.syncCurrentSongWithStorage());
     this.player.on('timeupdate', () => this.appView.updatePlayerState());
     this.player.on('playlistchange', () => this.appView.updatePlayerState());
     this.player.on('volumechange', () => this.appView.updatePlayerState());
@@ -73,6 +81,7 @@ export class AppController {
     this.appView.onEditSong((song) => this.editSong(song));
     this.appView.onAddSongsToPlaylist(() => this.addSongsToCurrentPlaylist());
     this.appView.onImportFiles(() => this.importFiles());
+    this.appView.onMoveQueueSong((fromIndex, toIndex) => this.reorderCurrentPlaylistSongs(fromIndex, toIndex));
   }
 
   private selectPlaylist(playlistId: string): void {
@@ -85,8 +94,20 @@ export class AppController {
     this.appView.updateSongsView(playlist.songs, this.player.getCurrentSong()?.id || null);
   }
 
-  private playSongAtIndex(index: number): void {
+  private async playSongAtIndex(index: number): Promise<void> {
+    const currentPlaylist = this.player.getCurrentPlaylist();
+    const song = currentPlaylist?.songs[index];
+
+    if (song && song.isFileAvailable === false) {
+      const relinked = await this.tryRelinkSongFile(song.id);
+      if (!relinked) {
+        this.appView.showNotification(song.missingReason || 'Archivo no disponible para reproducir', 'warning');
+        return;
+      }
+    }
+
     this.player.playSong(index);
+    this.syncCurrentSongWithStorage();
     this.appView.updatePlayerState();
   }
 
@@ -145,7 +166,7 @@ export class AppController {
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
     fileInput.multiple = true;
-    fileInput.accept = 'audio/*';
+    fileInput.accept = '.mp3,.flac,audio/*';
 
     fileInput.addEventListener('change', async (e) => {
       const files = (e.target as HTMLInputElement).files;
@@ -174,7 +195,7 @@ export class AppController {
   private async importFiles(): Promise<void> {
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
-    fileInput.accept = '.m3u,.m3u8,.mp3';
+    fileInput.accept = '.m3u,.m3u8,.mp3,.flac';
     fileInput.multiple = true;
 
     fileInput.addEventListener('change', async (e) => {
@@ -184,7 +205,9 @@ export class AppController {
       try {
         const selectedFiles = Array.from(files);
         const m3uFiles = selectedFiles.filter((file) => /\.m3u8?$/i.test(file.name));
-        const audioFiles = selectedFiles.filter((file) => file.type.startsWith('audio/') || /\.mp3$/i.test(file.name));
+        const audioFiles = selectedFiles.filter(
+          (file) => file.type.startsWith('audio/') || /\.(mp3|flac)$/i.test(file.name)
+        );
 
         let importedSongsCount = 0;
         let createdPlaylistsCount = 0;
@@ -220,11 +243,7 @@ export class AppController {
             }
           }
 
-          let audioSongs: any[] = [];
-          for (const audioFile of audioFiles) {
-            const songs = await this.m3uImporter.import(audioFile);
-            audioSongs = audioSongs.concat(songs);
-          }
+          const audioSongs = await this.localFileImporter.import(this.toFileList(audioFiles));
 
           if (audioSongs.length > 0 && targetPlaylist) {
             this.playlistService.addSongsToPlaylist(targetPlaylist.id, audioSongs);
@@ -276,6 +295,210 @@ export class AppController {
     document.body.removeChild(element);
 
     this.appView.showNotification('Playlist descargada', 'success');
+  }
+
+  private toFileList(files: File[]): FileList {
+    const dataTransfer = new DataTransfer();
+    files.forEach((file) => dataTransfer.items.add(file));
+    return dataTransfer.files;
+  }
+
+  private async rehydrateLocalSongs(playlists: ReturnType<PlaylistService['getAllPlaylists']>): Promise<void> {
+    for (const playlist of playlists) {
+      let playlistChanged = false;
+      let migratedToM3U = false;
+
+      for (const song of playlist.songs) {
+        if (song.source !== 'local') {
+          continue;
+        }
+
+        if (!song.blobId) {
+          if (this.canUseM3URedirect(song.audioUrl)) {
+            song.source = 'm3u';
+            song.isFileAvailable = true;
+            song.missingReason = undefined;
+            migratedToM3U = true;
+          } else {
+            song.isFileAvailable = false;
+            song.missingReason = 'Archivo local legado requiere re-vincular archivo';
+          }
+
+          playlistChanged = true;
+          continue;
+        }
+
+        try {
+          const blob = await this.storageService.getAudioBlob(song.blobId);
+          if (!blob) {
+            song.isFileAvailable = false;
+            song.missingReason = 'Archivo local no encontrado';
+            continue;
+          }
+
+          song.audioUrl = URL.createObjectURL(blob);
+          song.isFileAvailable = true;
+          song.missingReason = undefined;
+          playlistChanged = true;
+        } catch (error) {
+          song.isFileAvailable = false;
+          song.missingReason = 'Error recuperando archivo local';
+          playlistChanged = true;
+          console.error(`No se pudo recuperar el audio local: ${song.title}`, error);
+        }
+      }
+
+      if (playlistChanged) {
+        playlist.m3uContent = this.playlistService.exportPlaylistToM3U(playlist.id);
+        this.playlistService.updatePlaylist(playlist.id, {
+          songs: playlist.songs,
+          m3uContent: playlist.m3uContent,
+          source: migratedToM3U || playlist.source === 'imported' ? 'imported' : 'local',
+        });
+      }
+    }
+  }
+
+  private canUseM3URedirect(audioUrl: string | undefined): boolean {
+    if (!audioUrl) return false;
+    return !audioUrl.startsWith('blob:');
+  }
+
+  private async tryRelinkSongFile(songId: string): Promise<boolean> {
+    const currentPlaylistId = this.playlistService.getCurrentPlaylist()?.id;
+    if (!currentPlaylistId) {
+      return false;
+    }
+
+    const currentPlaylist = this.playlistService.getPlaylist(currentPlaylistId);
+    const songToRelink = currentPlaylist?.songs.find((song) => song.id === songId);
+    if (!songToRelink) {
+      return false;
+    }
+
+    const shouldRelink = window.confirm(
+      `La canción "${songToRelink.title}" no está disponible. ¿Quieres seleccionar el archivo para recuperarla?`
+    );
+    if (!shouldRelink) {
+      return false;
+    }
+
+    const selectedFile = await this.promptForSingleAudioFile();
+    if (!selectedFile) {
+      return false;
+    }
+
+    try {
+      const recoveredSongs = await this.localFileImporter.import(this.toFileList([selectedFile]));
+      if (recoveredSongs.length === 0) {
+        this.appView.showNotification('No se pudo recuperar el archivo seleccionado', 'error');
+        return false;
+      }
+
+      const recoveredSong = recoveredSongs[0];
+      this.playlistService.updateSong(currentPlaylistId, songId, {
+        audioUrl: recoveredSong.audioUrl,
+        blobId: recoveredSong.blobId,
+        duration: recoveredSong.duration || songToRelink.duration,
+        source: 'local',
+        isFileAvailable: true,
+        missingReason: undefined,
+      });
+
+      const updatedPlaylist = this.playlistService.getPlaylist(currentPlaylistId);
+      if (updatedPlaylist) {
+        this.player.loadPlaylist(updatedPlaylist);
+        this.appView.setCurrentPlaylist(updatedPlaylist);
+        this.appView.updateSongsView(updatedPlaylist.songs, songId);
+
+        const recoveredIndex = updatedPlaylist.songs.findIndex((song) => song.id === songId);
+        if (recoveredIndex >= 0) {
+          this.player.playSong(recoveredIndex, false);
+        }
+      }
+
+      this.appView.showNotification('Canción re-vinculada y guardada correctamente', 'success');
+      return true;
+    } catch (error) {
+      console.error('Error re-vinculando canción', error);
+      this.appView.showNotification('Error al re-vincular la canción', 'error');
+      return false;
+    }
+  }
+
+  private promptForSingleAudioFile(): Promise<File | null> {
+    return new Promise((resolve) => {
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = '.mp3,.flac,audio/*';
+      fileInput.multiple = false;
+
+      fileInput.addEventListener(
+        'change',
+        () => {
+          const selected = fileInput.files?.[0] || null;
+          resolve(selected);
+        },
+        { once: true }
+      );
+
+      fileInput.click();
+    });
+  }
+
+  private restoreAndTryPlayRememberedSong(): void {
+    const rememberedSong = this.playlistService.getCurrentSong();
+    if (!rememberedSong) {
+      return;
+    }
+
+    const currentPlaylist = this.player.getCurrentPlaylist();
+    if (!currentPlaylist) {
+      return;
+    }
+
+    const songIndex = currentPlaylist.songs.findIndex((song) => song.id === rememberedSong.id);
+    if (songIndex === -1) {
+      return;
+    }
+
+    this.player.playSong(songIndex, false);
+    this.appView.updateSongsView(currentPlaylist.songs, rememberedSong.id);
+    this.appView.updatePlayerState();
+  }
+
+  private syncCurrentSongWithStorage(): void {
+    const currentSong = this.player.getCurrentSong();
+    if (!currentSong) {
+      return;
+    }
+
+    this.playlistService.setCurrentSong(currentSong.id);
+
+    const currentPlaylist = this.player.getCurrentPlaylist();
+    if (currentPlaylist) {
+      this.appView.updateSongsView(currentPlaylist.songs, currentSong.id);
+    }
+
+    this.appView.updatePlayerState();
+  }
+
+  private reorderCurrentPlaylistSongs(fromIndex: number, toIndex: number): void {
+    const currentPlaylist = this.playlistService.getCurrentPlaylist();
+    if (!currentPlaylist) {
+      return;
+    }
+
+    this.playlistService.moveSong(currentPlaylist.id, fromIndex, toIndex);
+    const updatedPlaylist = this.playlistService.getPlaylist(currentPlaylist.id);
+    if (!updatedPlaylist) {
+      return;
+    }
+
+    this.player.updatePlaylistOrder(updatedPlaylist);
+    this.appView.setCurrentPlaylist(updatedPlaylist);
+    this.appView.updateSongsView(updatedPlaylist.songs, this.player.getCurrentSong()?.id || null);
+    this.appView.updatePlayerState();
   }
 
   getPlayer(): Player {

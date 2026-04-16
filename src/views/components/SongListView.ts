@@ -11,7 +11,6 @@ export class SongListView {
   private onPlaySong: (songIndex: number) => void = () => {};
   private onDeleteSong: (songId: string) => void = () => {};
   private onEditSong: (song: Song) => void = () => {};
-  private onAddToFavorites: (songId: string) => void = () => {};
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -37,13 +36,6 @@ export class SongListView {
    */
   setOnEditSong(callback: (song: Song) => void): void {
     this.onEditSong = callback;
-  }
-
-  /**
-   * Establece el callback para agregar a favoritos
-   */
-  setOnAddToFavorites(callback: (songId: string) => void): void {
-    this.onAddToFavorites = callback;
   }
 
   /**
@@ -144,15 +136,6 @@ export class SongListView {
     });
     editButton.appendChild(createIcon('edit'));
 
-    const favoriteButton = createButton('', {
-      class: 'p-2 text-red-600 hover:bg-red-100 rounded transition',
-      onClick: (e) => {
-        e.stopPropagation();
-        this.onAddToFavorites(song.id);
-      },
-    });
-    favoriteButton.appendChild(createIcon('heart'));
-
     const deleteButton = createButton('', {
       class: 'p-2 text-red-600 hover:bg-red-100 rounded transition',
       onClick: (e) => {
@@ -166,7 +149,6 @@ export class SongListView {
 
     actions.appendChild(playButton);
     actions.appendChild(editButton);
-    actions.appendChild(favoriteButton);
     actions.appendChild(deleteButton);
 
     card.appendChild(imageContainer);

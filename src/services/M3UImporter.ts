@@ -2,17 +2,17 @@ import { ISong, IPlaylistImporter } from '@interfaces';
 import { generateUUID } from '@utils';
 
 /**
- * Importa canciones desde archivos M3U y MP3
+ * Importa canciones desde archivos M3U y audio local
  */
 export class M3UImporter implements IPlaylistImporter {
   /**
-   * Importa un archivo M3U o MP3
-   * @param file - Archivo M3U o MP3 seleccionado
+   * Importa un archivo M3U o audio
+   * @param file - Archivo M3U o audio seleccionado
    */
   async import(file: File): Promise<ISong[]> {
-    // Si es un archivo MP3, crear una canción directamente
-    if (file.type.includes('audio') || file.name.endsWith('.mp3')) {
-      return this.importMP3(file);
+    // Si es un archivo de audio, crear una canción directamente
+    if (file.type.includes('audio') || /\.(mp3|flac)$/i.test(file.name)) {
+      return this.importAudioFile(file);
     }
 
     // Si es M3U, parsear el contenido
@@ -21,9 +21,9 @@ export class M3UImporter implements IPlaylistImporter {
   }
 
   /**
-   * Crea una canción desde un archivo MP3
+  * Crea una canción desde un archivo de audio
    */
-  private importMP3(file: File): ISong[] {
+  private importAudioFile(file: File): ISong[] {
     const title = file.name.replace(/\.[^/.]+$/, '');
     const song: ISong = {
       id: generateUUID(),
@@ -108,7 +108,7 @@ export class M3UImporter implements IPlaylistImporter {
       albumArt: '',
       audioUrl: audioPath,
       source: 'm3u',
-      isFileAvailable: audioPath.startsWith('http') || audioPath.startsWith('/'),
+      isFileAvailable: !audioPath.startsWith('blob:'),
     };
   }
 
@@ -126,7 +126,7 @@ export class M3UImporter implements IPlaylistImporter {
       albumArt: '',
       audioUrl: normalizedPath,
       source: 'm3u',
-      isFileAvailable: normalizedPath.startsWith('http') || normalizedPath.startsWith('/'),
+      isFileAvailable: !normalizedPath.startsWith('blob:'),
     };
   }
 

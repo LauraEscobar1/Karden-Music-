@@ -32,6 +32,7 @@ export class AppView {
   private onEditSongCallback: (song: ISong) => void = () => {};
   private onAddSongsCallback: () => void = () => {};
   private onImportFilesCallback: () => void = () => {};
+  private onMoveQueueSongCallback: (fromIndex: number, toIndex: number) => void = () => {};
 
   constructor(rootSelector: string, playlistService: PlaylistService, player: Player) {
     this.playlistService = playlistService;
@@ -209,6 +210,7 @@ export class AppView {
     this.playerControlsView.setOnVolumeChange((volume) => this.player.setVolume(volume));
     this.playerControlsView.setOnToggleLoop(() => this.player.cycleRepeatMode());
     this.playerControlsView.setOnToggleShuffle(() => this.player.toggleShuffle());
+    this.playerControlsView.setOnMoveQueueSong((fromIndex, toIndex) => this.onMoveQueueSongCallback(fromIndex, toIndex));
   }
 
   updatePlaylistsView(playlists: IUserPlaylist[]): void {
@@ -223,6 +225,8 @@ export class AppView {
     const state = this.player.getPlayerState();
     this.playerControlsView.update({
       currentSong: state.currentSong as any,
+      currentSongId: state.currentSong?.id || null,
+      queueSongs: this.player.getCurrentPlaylist()?.songs || [],
       isPlaying: state.isPlaying,
       currentTime: state.currentTime,
       duration: state.duration,
@@ -309,5 +313,9 @@ export class AppView {
 
   onImportFiles(callback: () => void): void {
     this.onImportFilesCallback = callback;
+  }
+
+  onMoveQueueSong(callback: (fromIndex: number, toIndex: number) => void): void {
+    this.onMoveQueueSongCallback = callback;
   }
 }

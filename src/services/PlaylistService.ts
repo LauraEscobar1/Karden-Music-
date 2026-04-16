@@ -1,6 +1,8 @@
 import { ISong, IUserPlaylist, ILibraryState } from '@interfaces';
 import { StorageService } from '@utils/StorageManager';
 import { generateUUID } from '@utils';
+import { M3UImporter } from './M3UImporter';
+import { DoubleLinkedList } from '@models';
 
 export class PlaylistService {
   private storageService: StorageService;
@@ -87,8 +89,27 @@ export class PlaylistService {
     const playlist = this.getPlaylist(playlistId);
     if (!playlist) return;
 
-    const [song] = playlist.songs.splice(fromIndex, 1);
-    playlist.songs.splice(toIndex, 0, song);
+    if (
+      fromIndex < 0 ||
+      toIndex < 0 ||
+      fromIndex >= playlist.songs.length ||
+      toIndex >= playlist.songs.length ||
+      fromIndex === toIndex
+    ) {
+      return;
+    }
+
+    // Reordenamiento basado en lista doble para mantener la lógica del proyecto.
+    const doubleList = new DoubleLinkedList<ISong>();
+    playlist.songs.forEach((song) => doubleList.append(song));
+
+    const movedSong = doubleList.removeAt(fromIndex);
+    if (!movedSong) return;
+
+    doubleList.insertAt(movedSong, toIndex);
+
+    playlist.songs = doubleList.toArray();
+    playlist.updatedAt = Date.now();
     this.storageService.saveLibraryState(this.libraryState);
   }
 
@@ -121,6 +142,9 @@ export class PlaylistService {
   importPlaylistFromM3U(name: string, description: string, songs: ISong[], coverImage: string = ''): IUserPlaylist {
     const playlist = this.createPlaylist(name, description, coverImage);
     this.addSongsToPlaylist(playlist.id, songs);
+    playlist.source = 'imported';
+    playlist.m3uContent = M3UImporter.serializeToM3U(songs);
+    this.storageService.saveLibraryState(this.libraryState);
     return playlist;
   }
 

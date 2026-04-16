@@ -154,6 +154,7 @@ export function createIcon(iconName: string): HTMLElement {
     add: '➕',
     search: '🔍',
     heart: '❤',
+    queue: '☰',
     shuffle: '🔀',
     loop: '🔁',
   };
